@@ -132,7 +132,7 @@ th{font-size:12px;color:var(--muted)} td.l,th.l{text-align:left}
   </header>
 
   <section class="card">
-    <h2>회차별로 풀기</h2>
+    <h2>회차별로 풀기</h2><p class="hint" style="margin:0">회차마다 풀 과목을 눌러서 고르세요. 하나만 골라도 되고 여러 개를 골라도 돼요.</p>
     <div class="row">
       <span class="label">방식</span>
       <button class="pill on" data-mode="exam">시험 모드</button>
@@ -147,7 +147,8 @@ th{font-size:12px;color:var(--muted)} td.l,th.l{text-align:left}
 
   <section class="card">
     <h2>유형별 랜덤 풀기</h2>
-    <div class="row" id="rSubj"></div>
+    <div class="row"><span class="label">회차</span><span id="rRound" class="row" style="gap:6px"></span></div>
+    <div class="row"><span class="label">과목</span><span id="rSubj" class="row" style="gap:6px"></span></div>
     <div class="tags" id="rTags"></div>
     <div class="row">
       <span class="label">문항 수</span>
@@ -257,21 +258,24 @@ function renderHome(){
   const d=Math.ceil((new Date(2026,10,28)-new Date(new Date().toDateString()))/864e5);
   $("#dday").innerHTML=d>=0?`제67회 시험(11월 28일)까지 <span class="dday">D-${d}</span>`:"";
   $("#rounds").innerHTML=ROUNDS.map(r=>`<div class="card"><div class="row" style="justify-content:space-between"><span class="big">제${r}회</span><span class="hint">${DATES[r]||""}</span></div>
-    <button class="btn primary" data-start="${r}|all">전체 120문항</button>
-    <div class="row">${SUBJ.map((s,i)=>`<button class="btn sm" data-start="${r}|${i}">${s}</button>`).join("")}</div></div>`).join("");
+    <div class="row" style="gap:6px">${SUBJ.map((s,i)=>`<button class="pill ${(pickR[r]||SUBJ).includes(s)?"on":""}" data-pr="${r}|${s}">${s}</button>`).join("")}</div>
+    <button class="btn primary" data-start="${r}">${startLabel(r)}</button></div>`).join("");
   // 랜덤
+  $("#rRound").innerHTML=ROUNDS.map(r=>`<button class="pill ${rRnd.has(r)?"on":""}" data-rr="${r}">제${r}회</button>`).join("");
   $("#rSubj").innerHTML=SUBJ.map(s=>`<button class="pill on" data-rs="${s}">${s}</button>`).join("");
   renderTags();renderHist();syncPills();
 }
-let rSel=new Set(SUBJ),tSel=new Set();
+let rSel=new Set(SUBJ),tSel=new Set(),rRnd=new Set(ROUNDS);
+const pickR=store.get("tc_pickR",{});
+function startLabel(r){const ss=pickR[r]||SUBJ;const n=Q.filter(q=>q.r==r&&ss.includes(q.s)).length;return ss.length===4?`전 과목 시작 (${n}문항)`:`선택한 ${ss.length}과목 시작 (${n}문항)`}
 function renderTags(){
-  const tags=[...new Set(Q.filter(q=>rSel.has(q.s)).map(q=>q.t))];
+  const tags=[...new Set(Q.filter(q=>rRnd.has(q.r)&&rSel.has(q.s)).map(q=>q.t))];
   [...tSel].forEach(t=>{if(!tags.includes(t))tSel.delete(t)});
   $("#rTags").innerHTML=`<button class="pill ${tSel.size?"":"on"}" data-rt="">전체 유형</button>`+tags.map(t=>`<button class="pill ${tSel.has(t)?"on":""}" data-rt="${esc(t)}">${esc(t)}</button>`).join("");
   const pool=randPool();$("#rInfo").textContent=`해당 문항 ${pool.length}개`;
 }
 function lastResults(){const h=store.get("tc_hist",[]);const last={};h.forEach(s=>s.qids.forEach(id=>{if(s.ans[id]!=null)last[id]=ok(id,s.ans[id])}));return last}
-function randPool(){const last=$("#rWrong").checked?lastResults():null;return Q.filter(q=>rSel.has(q.s)&&(!tSel.size||tSel.has(q.t))&&(!last||last[q.id]===false))}
+function randPool(){const last=$("#rWrong").checked?lastResults():null;return Q.filter(q=>rRnd.has(q.r)&&rSel.has(q.s)&&(!tSel.size||tSel.has(q.t))&&(!last||last[q.id]===false))}
 $("#rSubj").addEventListener("click",e=>{const b=e.target.closest("[data-rs]");if(!b)return;const s=b.dataset.rs;rSel.has(s)?rSel.delete(s):rSel.add(s);if(!rSel.size)rSel.add(s);b.classList.toggle("on",rSel.has(s));renderTags()});
 $("#rTags").addEventListener("click",e=>{const b=e.target.closest("[data-rt]");if(!b)return;const t=b.dataset.rt;if(!t)tSel.clear();else tSel.has(t)?tSel.delete(t):tSel.add(t);renderTags()});
 $("#rWrong").onchange=renderTags;
@@ -279,9 +283,15 @@ $("#rStart").onclick=()=>{const pool=randPool();if(!pool.length){$("#rInfo").tex
   const n=Math.min(+$("#rCount").value,pool.length);const pick=pool.slice().sort(()=>Math.random()-.5).slice(0,n)
     .sort((a,b)=>SUBJ.indexOf(a.s)-SUBJ.indexOf(b.s));
   start({title:`유형별 랜덤 ${n}문항`,qids:pick.map(q=>q.id),limit:mode==="exam"?n*LIMIT:0})};
-$("#rounds").addEventListener("click",e=>{const b=e.target.closest("[data-start]");if(!b)return;const [r,s]=b.dataset.start.split("|");
-  const qs=Q.filter(q=>q.r==r&&(s==="all"||q.s===SUBJ[+s]));
-  start({title:`제${r}회 ${s==="all"?"전 과목":SUBJ[+s]}`,qids:qs.map(q=>q.id),limit:mode==="exam"?qs.length*LIMIT:0})});
+$("#rRound").addEventListener("click",e=>{const b=e.target.closest("[data-rr]");if(!b)return;const r=+b.dataset.rr;rRnd.has(r)?rRnd.delete(r):rRnd.add(r);if(!rRnd.size)rRnd.add(r);b.classList.toggle("on",rRnd.has(r));renderTags()});
+$("#rounds").addEventListener("click",e=>{
+  const p=e.target.closest("[data-pr]");
+  if(p){const [r,sb]=p.dataset.pr.split("|");let ss=(pickR[r]||SUBJ).slice();ss=ss.includes(sb)?ss.filter(x=>x!==sb):[...ss,sb];if(!ss.length)return;
+    ss.sort((a,b)=>SUBJ.indexOf(a)-SUBJ.indexOf(b));pickR[r]=ss;store.set("tc_pickR",pickR);p.classList.toggle("on",ss.includes(sb));
+    p.closest(".card").querySelector("[data-start]").textContent=startLabel(r);return}
+  const b=e.target.closest("[data-start]");if(!b)return;const r=b.dataset.start,ss=pickR[r]||SUBJ;
+  const qs=Q.filter(q=>q.r==r&&ss.includes(q.s));
+  start({title:`제${r}회 ${ss.length===4?"전 과목":ss.join(", ")}`,qids:qs.map(q=>q.id),limit:mode==="exam"?qs.length*LIMIT:0})});
 
 /* ---------- 시험 진행 ---------- */
 let S=null,tick=null;
